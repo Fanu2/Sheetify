@@ -1,6 +1,7 @@
-streamlit
-pytesseract
-pillow
-pandas
-pyexcel-ods
-numpy
+streamlit>=1.30.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+pandas>=2.2.0
+numpy>=1.26.0
+pyexcel-ods>=0.6.6
+xlsxwriter>=3.1.9
