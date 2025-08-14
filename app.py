@@ -1,151 +1,57 @@
-import streamlit as st
+import cv2
 import pytesseract
-from PIL import Image, ImageFilter, ImageOps
 import pandas as pd
 import numpy as np
-import pdfplumber
-from deep_translator import GoogleTranslator
-from langdetect import detect
-import io
-import zipfile
-import xlsxwriter
+from PIL import Image
+import re
 
-# 🚀 App Setup
-st.set_page_config(page_title="Universal OCR Dashboard", layout="wide")
-st.title("🧠 Universal OCR Dashboard")
-st.markdown("Extract structured data from images and PDFs. Supports multilingual OCR, handwriting, layout-aware table reconstruction, and enhanced Excel export.")
+def preprocess_image(image_path):
+    # Load and convert to grayscale
+    img = cv2.imread(image_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-# 📌 Preprocessing
-def preprocess_image(pil_image, threshold=180):
-    gray = pil_image.convert("L")
-    blurred = gray.filter(ImageFilter.GaussianBlur(radius=1))
-    enhanced = ImageOps.autocontrast(blurred)
-    np_img = np.array(enhanced)
-    binary = np.where(np_img > threshold, 255, 0).astype(np.uint8)
-    return Image.fromarray(binary)
+    # Resize for better OCR accuracy
+    gray = cv2.resize(gray, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
 
-def preprocess_handwriting(image):
-    gray = image.convert("L")
-    enhanced = ImageOps.autocontrast(gray)
-    sharpened = enhanced.filter(ImageFilter.UnsharpMask(radius=2, percent=150))
-    return sharpened
+    # Apply adaptive thresholding
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY, 11, 2)
+    return thresh
 
-# 📊 Table Extraction
-def extract_table_data(image):
-    ocr_data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DATAFRAME)
-    ocr_data = ocr_data.dropna(subset=['text'])
-    rows, current_line = [], []
-    last_line_num = -1
-    for _, row in ocr_data.iterrows():
-        if row['line_num'] != last_line_num:
-            if current_line:
-                rows.append(current_line)
-            current_line = [row['text']]
-            last_line_num = row['line_num']
-        else:
-            current_line.append(row['text'])
-    if current_line:
-        rows.append(current_line)
-    return pd.DataFrame(rows)
+def extract_text(image):
+    # Convert OpenCV image to PIL format
+    pil_img = Image.fromarray(image)
+    text = pytesseract.image_to_string(pil_img, lang='eng')
+    return text
 
-def detect_header(df):
-    if df.shape[0] > 1 and df.iloc[0].apply(lambda x: isinstance(x, str)).all():
-        df.columns = df.iloc[0]
-        df = df.drop(index=0).reset_index(drop=True)
+def parse_table(text):
+    # Split into lines and filter out empty ones
+    lines = [line.strip() for line in text.split('\n') if line.strip()]
+    
+    # Try to detect columns using multiple spaces or tabs
+    rows = []
+    for line in lines:
+        # Split by 2+ spaces or tabs
+        columns = re.split(r'\s{2,}|\t+', line)
+        rows.append(columns)
+
+    # Normalize row lengths
+    max_cols = max(len(row) for row in rows)
+    rows = [row + [''] * (max_cols - len(row)) for row in rows]
+
+    # Assume first row is header
+    df = pd.DataFrame(rows[1:], columns=rows[0])
     return df
 
-# 📤 Excel Export
-def export_to_excel(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-        workbook = writer.book
-        worksheet = writer.sheets['Sheet1']
-        header_format = workbook.add_format({
-            'bold': True, 'text_wrap': True, 'valign': 'top',
-            'fg_color': '#D7E4BC', 'border': 1
-        })
-        for col_num, value in enumerate(df.columns.values):
-            worksheet.write(0, col_num, value, header_format)
-        for i, col in enumerate(df.columns):
-            column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
-            worksheet.set_column(i, i, column_len)
-        worksheet.freeze_panes(1, 0)
-        for i, col in enumerate(df.columns):
-            if pd.api.types.is_numeric_dtype(df[col]):
-                worksheet.conditional_format(1, i, len(df), i, {'type': '3_color_scale'})
-    return output.getvalue()
+def export_to_excel(df, output_path="output.xlsx"):
+    df.to_excel(output_path, index=False, engine="openpyxl")
+    print(f"✅ Exported to {output_path}")
 
-def export_all_to_zip(dataframes, filenames):
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-        for df, name in zip(dataframes, filenames):
-            excel_bytes = export_to_excel(df)
-            zip_file.writestr(f"{name}.xlsx", excel_bytes)
-    return zip_buffer.getvalue()
+def process_image_to_excel(image_path, output_path="output.xlsx"):
+    processed = preprocess_image(image_path)
+    text = extract_text(processed)
+    df = parse_table(text)
+    export_to_excel(df, output_path)
 
-# 🌐 Language Selection
-lang_code = st.selectbox("🌍 OCR Language", {
-    "English": "eng", "Spanish": "spa", "French": "fra",
-    "German": "deu", "Japanese": "jpn", "Chinese": "chi_sim",
-    "Arabic": "ara"
-})
-
-low_conf_threshold = st.slider("🔍 Confidence Threshold", 0, 100, 60)
-
-# 📷 Image OCR
-st.subheader("📷 Image OCR")
-uploaded_files = st.file_uploader("Upload images", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
-
-all_dfs, all_names = [], []
-
-if uploaded_files:
-    for uploaded_file in uploaded_files:
-        st.markdown(f"---\n### Processing: `{uploaded_file.name}`")
-        image = Image.open(uploaded_file)
-        st.image(image, caption="Original Image", use_column_width=True)
-
-        processed_image = preprocess_image(image)
-        st.image(processed_image, caption="Preprocessed Image", use_column_width=True)
-
-        raw_text = pytesseract.image_to_string(processed_image, lang=lang_code)
-        st.text_area("📝 Extracted Text", raw_text, height=150)
-
-        try:
-            detected_lang = detect(raw_text)
-            st.write(f"🧠 Detected Language: `{detected_lang}`")
-            translated = GoogleTranslator(source=lang_code, target='en').translate(raw_text)
-            st.text_area("🌍 Translated Text", translated, height=150)
-        except Exception as e:
-            st.warning(f"Translation failed: {e}")
-
-        df = extract_table_data(processed_image)
-        df = detect_header(df)
-        st.subheader("📊 Parsed Table")
-        st.dataframe(df)
-
-        ocr_debug = pytesseract.image_to_data(processed_image, output_type=pytesseract.Output.DATAFRAME)
-        low_conf_cells = ocr_debug[ocr_debug['conf'] < low_conf_threshold]
-        if not low_conf_cells.empty:
-            st.warning(f"{len(low_conf_cells)} low-confidence words detected.")
-            st.dataframe(low_conf_cells[['text', 'conf', 'left', 'top']])
-
-        all_dfs.append(df)
-        all_names.append(uploaded_file.name)
-
-if all_dfs and st.button("📦 Download All Tables as ZIP"):
-    zip_data = export_all_to_zip(all_dfs, all_names)
-    st.download_button("Download ZIP", zip_data, "tables.zip", "application/zip")
-
-# 📄 PDF Table Extraction
-st.subheader("📄 PDF Table Extraction")
-pdf_file = st.file_uploader("Upload PDF", type=["pdf"])
-if pdf_file:
-    with pdfplumber.open(pdf_file) as pdf:
-        for i, page in enumerate(pdf.pages):
-            tables = page.extract_tables()
-            for j, table in enumerate(tables):
-                df = pd.DataFrame(table[1:], columns=table[0])
-                st.subheader(f"📊 Page {i+1}, Table {j+1}")
-                st.dataframe(df)
-                st.download_button(f"Download Table {i+1}-{j+1}", df.to_csv(index=False).encode("utf-8"), f"table_{i+1}_{j+1}.csv", "text/csv")
+# Example usage
+process_image_to_excel("your_image.jpeg", "table_output.xlsx")
