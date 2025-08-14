@@ -3,21 +3,19 @@ import pytesseract
 from PIL import Image, ImageFilter, ImageOps
 import pandas as pd
 import numpy as np
+import pdfplumber
+from deep_translator import GoogleTranslator
+from langdetect import detect
 import io
 import zipfile
 import xlsxwriter
-import pdfplumber
-from googletrans import Translator
-from langdetect import detect
 
-# Optional: Set Tesseract path
-# pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-
+# 🚀 App Setup
 st.set_page_config(page_title="Universal OCR Dashboard", layout="wide")
 st.title("🧠 Universal OCR Dashboard")
-st.markdown("Extract structured data from images, PDFs, voice, and webcam input. Supports multilingual OCR, handwriting, and layout-aware table reconstruction.")
+st.markdown("Extract structured data from images and PDFs. Supports multilingual OCR, handwriting, layout-aware table reconstruction, and enhanced Excel export.")
 
-# 📌 Image Preprocessing
+# 📌 Preprocessing
 def preprocess_image(pil_image, threshold=180):
     gray = pil_image.convert("L")
     blurred = gray.filter(ImageFilter.GaussianBlur(radius=1))
@@ -26,14 +24,13 @@ def preprocess_image(pil_image, threshold=180):
     binary = np.where(np_img > threshold, 255, 0).astype(np.uint8)
     return Image.fromarray(binary)
 
-# ✍️ Handwriting Preprocessing
 def preprocess_handwriting(image):
     gray = image.convert("L")
     enhanced = ImageOps.autocontrast(gray)
     sharpened = enhanced.filter(ImageFilter.UnsharpMask(radius=2, percent=150))
     return sharpened
 
-# 📌 Table Extraction
+# 📊 Table Extraction
 def extract_table_data(image):
     ocr_data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DATAFRAME)
     ocr_data = ocr_data.dropna(subset=['text'])
@@ -51,14 +48,13 @@ def extract_table_data(image):
         rows.append(current_line)
     return pd.DataFrame(rows)
 
-# 🧠 Header Detection
 def detect_header(df):
     if df.shape[0] > 1 and df.iloc[0].apply(lambda x: isinstance(x, str)).all():
         df.columns = df.iloc[0]
         df = df.drop(index=0).reset_index(drop=True)
     return df
 
-# 📤 Enhanced Excel Export
+# 📤 Excel Export
 def export_to_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -80,7 +76,6 @@ def export_to_excel(df):
                 worksheet.conditional_format(1, i, len(df), i, {'type': '3_color_scale'})
     return output.getvalue()
 
-# 📦 Batch Export
 def export_all_to_zip(dataframes, filenames):
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zip_file:
@@ -96,10 +91,9 @@ lang_code = st.selectbox("🌍 OCR Language", {
     "Arabic": "ara"
 })
 
-# 🧪 Confidence Threshold
 low_conf_threshold = st.slider("🔍 Confidence Threshold", 0, 100, 60)
 
-# 📷 Image OCR Tab
+# 📷 Image OCR
 st.subheader("📷 Image OCR")
 uploaded_files = st.file_uploader("Upload images", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
 
@@ -120,15 +114,13 @@ if uploaded_files:
         try:
             detected_lang = detect(raw_text)
             st.write(f"🧠 Detected Language: `{detected_lang}`")
-            translator = Translator()
-            translated = translator.translate(raw_text, src=lang_code, dest='en')
-            st.text_area("🌍 Translated Text", translated.text, height=150)
-        except:
-            st.warning("Translation or language detection failed.")
+            translated = GoogleTranslator(source=lang_code, target='en').translate(raw_text)
+            st.text_area("🌍 Translated Text", translated, height=150)
+        except Exception as e:
+            st.warning(f"Translation failed: {e}")
 
         df = extract_table_data(processed_image)
         df = detect_header(df)
-
         st.subheader("📊 Parsed Table")
         st.dataframe(df)
 
@@ -141,7 +133,6 @@ if uploaded_files:
         all_dfs.append(df)
         all_names.append(uploaded_file.name)
 
-# 📦 Batch Download
 if all_dfs and st.button("📦 Download All Tables as ZIP"):
     zip_data = export_all_to_zip(all_dfs, all_names)
     st.download_button("Download ZIP", zip_data, "tables.zip", "application/zip")
