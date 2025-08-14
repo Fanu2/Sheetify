@@ -1,5 +1,5 @@
 import streamlit as st
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 import pytesseract
 import pandas as pd
 
@@ -7,6 +7,7 @@ import pandas as pd
 def preprocess_image(image):
     image = image.convert("L")  # Grayscale
     image = ImageOps.autocontrast(image)
+    image = image.filter(ImageFilter.SHARPEN)
     image = image.point(lambda x: 0 if x < 128 else 255, '1')  # Binarize
     return image
 
@@ -51,26 +52,36 @@ def convert_df_to_csv(df):
     return df.to_csv(index=False).encode("utf-8")
 
 # 🌟 Streamlit UI
-st.set_page_config(page_title="OCR Table to CSV", page_icon="📄")
-st.title("📄 OCR Table to CSV Converter")
+st.set_page_config(page_title="Jamabandi OCR to CSV", page_icon="📄")
+st.title("📄 Jamabandi OCR Table to CSV Converter")
 
-uploaded_file = st.file_uploader("Upload an image of a table", type=["jpg", "jpeg", "png"])
+# 🗣 Language Selection
+lang_choice = st.selectbox("Select OCR Language", ["Hindi", "English", "Hindi + English"])
+lang_map = {
+    "Hindi": "hin",
+    "English": "eng",
+    "Hindi + English": "hin+eng"
+}
+ocr_lang = lang_map[lang_choice]
+
+# 📤 File Upload
+uploaded_file = st.file_uploader("Upload a Jamabandi-style table image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
     processed = preprocess_image(image)
-    ocr_df = pytesseract.image_to_data(processed, lang="eng", output_type=pytesseract.Output.DATAFRAME)
+    ocr_df = pytesseract.image_to_data(processed, lang=ocr_lang, output_type=pytesseract.Output.DATAFRAME)
 
     df = parse_table_from_data(ocr_df)
 
     if df.empty:
-        st.warning("⚠️ Could not detect a table structure. Try a clearer image.")
-        st.text_area("Raw OCR Output", "\n".join(ocr_df["text"].dropna().tolist()), height=200)
+        st.warning("⚠️ Could not detect a table structure. Try a clearer image or different language setting.")
+        st.text_area("🔍 Raw OCR Output", "\n".join(ocr_df["text"].dropna().tolist()), height=200)
     else:
         st.subheader("✅ Extracted Table")
         st.dataframe(df)
 
         csv_data = convert_df_to_csv(df)
-        st.download_button("📥 Download as CSV", data=csv_data, file_name="table.csv", mime="text/csv")
+        st.download_button("📥 Download as CSV", data=csv_data, file_name="jamabandi_table.csv", mime="text/csv")
