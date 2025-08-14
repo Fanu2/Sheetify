@@ -1,8 +1,7 @@
 import streamlit as st
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 import pandas as pd
-import cv2
 import numpy as np
 from pyexcel_ods import save_data
 from collections import OrderedDict
@@ -12,14 +11,19 @@ st.set_page_config(page_title="Image to Spreadsheet", layout="wide")
 st.title("🖼️ Image to Spreadsheet Converter")
 st.markdown("Convert tabular data from scanned images into CSV or LibreOffice `.ods` format.")
 
-# 📌 Image Preprocessing
+# 📌 PIL-only Preprocessing
 def preprocess_image(pil_image):
-    img = np.array(pil_image.convert("RGB"))
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    blur = cv2.GaussianBlur(gray, (3, 3), 0)
-    thresh = cv2.adaptiveThreshold(blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                   cv2.THRESH_BINARY_INV, 15, 10)
-    return Image.fromarray(thresh)
+    # Convert to grayscale
+    gray = pil_image.convert("L")
+    # Apply slight blur to reduce noise
+    blurred = gray.filter(ImageFilter.GaussianBlur(radius=1))
+    # Enhance contrast
+    enhanced = ImageOps.autocontrast(blurred)
+    # Apply binary threshold
+    np_img = np.array(enhanced)
+    threshold = 180
+    binary = np.where(np_img > threshold, 255, 0).astype(np.uint8)
+    return Image.fromarray(binary)
 
 # 📌 Table Extraction
 def extract_table_data(image):
