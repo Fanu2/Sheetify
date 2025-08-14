@@ -3,8 +3,9 @@ from PIL import Image, ImageOps, ImageFilter
 import pytesseract
 import pandas as pd
 import re
-import jpype
-import asposecells
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font
 
 # 📍 Set Tesseract path (Streamlit Cloud default)
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
@@ -65,28 +66,26 @@ def convert_df_to_csv(df):
     return df.to_csv(index=False).encode("utf-8")
 
 # 📤 Export to styled Excel with Mangal font
-def export_to_excel_with_mangal(df, output_path="jamabandi_output.xlsx"):
-    if not jpype.isJVMStarted():
-        jpype.startJVM()
+def export_to_excel_with_mangal(df):
+    wb = Workbook()
+    ws = wb.active
 
-    from asposecells.api import Workbook, SaveFormat
+    # Write headers
+    for col_num, col_name in enumerate(df.columns, 1):
+        cell = ws.cell(row=1, column=col_num, value=col_name)
+        cell.font = Font(name="Mangal", size=12, bold=True)
 
-    workbook = Workbook()
-    sheet = workbook.getWorksheets().get(0)
+    # Write data
+    for row_num, row in enumerate(df.itertuples(index=False), start=2):
+        for col_num, value in enumerate(row, start=1):
+            cell = ws.cell(row=row_num, column=col_num, value=str(value))
+            cell.font = Font(name="Mangal", size=12)
 
-    for i, row in enumerate(df.itertuples(index=False)):
-        for j, value in enumerate(row):
-            cell = sheet.getCells().get(i, j)
-            cell.putValue(str(value))
-
-            style = cell.getStyle()
-            font = style.getFont()
-            font.setName("Mangal")
-            font.setSize(12)
-            style.setFont(font)
-            cell.setStyle(style)
-
-    workbook.save(output_path, SaveFormat.XLSX)
+    # Save to buffer
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
 
 # 🌟 Streamlit UI
 st.set_page_config(page_title="Jamabandi OCR to Excel", page_icon="📄")
@@ -113,7 +112,5 @@ if uploaded_file:
         csv_data = convert_df_to_csv(df)
         st.download_button("📥 Download as CSV", data=csv_data, file_name="jamabandi_table.csv", mime="text/csv")
 
-        if st.button("📥 Export as Styled Excel"):
-            export_to_excel_with_mangal(df)
-            with open("jamabandi_output.xlsx", "rb") as f:
-                st.download_button("Download Styled Excel", f.read(), "jamabandi_output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        excel_buffer = export_to_excel_with_mangal(df)
+        st.download_button("📥 Download Styled Excel", data=excel_buffer, file_name="jamabandi_output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
