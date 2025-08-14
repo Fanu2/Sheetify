@@ -2,8 +2,12 @@ import streamlit as st
 from PIL import Image, ImageOps, ImageFilter
 import pytesseract
 import pandas as pd
+import re
 
-# 📦 Image Preprocessing
+# 📍 Set Tesseract path (Streamlit Cloud default)
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
+# 📦 Image Preprocessing tuned for Mangal font
 def preprocess_image(image):
     image = image.convert("L")  # Grayscale
     image = ImageOps.autocontrast(image)
@@ -25,6 +29,12 @@ def deduplicate_columns(columns):
             new_cols.append(f"{col}_{seen[col]}")
     return new_cols
 
+# 🧹 Optional: Clean Hindi text
+def clean_hindi_text(text):
+    text = text.replace("।", ".")
+    text = re.sub(r"[^\u0900-\u097F\s]", "", text)
+    return text.strip()
+
 # 🧾 Parse Table from OCR Data
 def parse_table_from_data(ocr_df):
     ocr_df = ocr_df[ocr_df.text.notnull() & (ocr_df.text.str.strip() != "")]
@@ -34,7 +44,8 @@ def parse_table_from_data(ocr_df):
     rows = []
     for _, line in lines:
         words = line.sort_values("left")["text"].tolist()
-        rows.append(words)
+        cleaned = [clean_hindi_text(w) for w in words]
+        rows.append(cleaned)
 
     if not rows or len(rows) < 2:
         return pd.DataFrame()
@@ -55,29 +66,19 @@ def convert_df_to_csv(df):
 st.set_page_config(page_title="Jamabandi OCR to CSV", page_icon="📄")
 st.title("📄 Jamabandi OCR Table to CSV Converter")
 
-# 🗣 Language Selection
-lang_choice = st.selectbox("Select OCR Language", ["Hindi", "English", "Hindi + English"])
-lang_map = {
-    "Hindi": "hin",
-    "English": "eng",
-    "Hindi + English": "hin+eng"
-}
-ocr_lang = lang_map[lang_choice]
-
-# 📤 File Upload
-uploaded_file = st.file_uploader("Upload a Jamabandi-style table image", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload a Jamabandi-style Hindi table image", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file)
     st.image(image, caption="Uploaded Image", use_column_width=True)
 
     processed = preprocess_image(image)
-    ocr_df = pytesseract.image_to_data(processed, lang=ocr_lang, output_type=pytesseract.Output.DATAFRAME)
+    ocr_df = pytesseract.image_to_data(processed, lang="hin", output_type=pytesseract.Output.DATAFRAME)
 
     df = parse_table_from_data(ocr_df)
 
     if df.empty:
-        st.warning("⚠️ Could not detect a table structure. Try a clearer image or different language setting.")
+        st.warning("⚠️ Could not detect a table structure. Try a clearer image.")
         st.text_area("🔍 Raw OCR Output", "\n".join(ocr_df["text"].dropna().tolist()), height=200)
     else:
         st.subheader("✅ Extracted Table")
@@ -85,3 +86,22 @@ if uploaded_file:
 
         csv_data = convert_df_to_csv(df)
         st.download_button("📥 Download as CSV", data=csv_data, file_name="jamabandi_table.csv", mime="text/csv")
+
+        # Optional: Display sample in Mangal font (requires hosted font)
+        st.markdown("""
+        <style>
+        @font-face {
+          font-family: 'Mangal';
+          src: url('https://cdn.jsdelivr.net/gh/jasvir/mangal-font/Mangal.ttf');
+        }
+        .hindi {
+          font-family: 'Mangal';
+          font-size: 20px;
+        }
+        </style>
+        <div class='hindi'>
+        उदाहरण: विवरण सहित मालिक नाम — शिवक सिंह<br>
+        रकबा और किस्म जमीन — 8-0 वाली
+        </div>
+        """, unsafe_allow_html=True)
+
