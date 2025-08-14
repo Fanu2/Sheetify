@@ -10,14 +10,23 @@ def preprocess_image(image):
     image = image.point(lambda x: 0 if x < 128 else 255, '1')  # Binarize
     return image
 
+def deduplicate_columns(columns):
+    seen = {}
+    new_cols = []
+    for col in columns:
+        if col not in seen:
+            seen[col] = 1
+            new_cols.append(col)
+        else:
+            seen[col] += 1
+            new_cols.append(f"{col}_{seen[col]}")
+    return new_cols
+
 def parse_table_from_data(ocr_df):
-    # Drop rows with no text
     ocr_df = ocr_df[ocr_df.text.notnull() & (ocr_df.text.str.strip() != "")]
     ocr_df = ocr_df.reset_index(drop=True)
 
-    # Group by line number
     lines = ocr_df.groupby("line_num")
-
     rows = []
     for _, line in lines:
         words = line.sort_values("left")["text"].tolist()
@@ -28,11 +37,11 @@ def parse_table_from_data(ocr_df):
 
     max_cols = max(len(row) for row in rows)
     rows = [row + [""] * (max_cols - len(row)) for row in rows]
-    df = pd.DataFrame(rows[1:], columns=rows[0])
+
+    headers = deduplicate_columns(rows[0])
+    df = pd.DataFrame(rows[1:], columns=headers)
     return df
 
-def convert_df_to_csv(df):
-    return df.to_csv(index=False).encode("utf-8")
 
 # Streamlit UI
 st.title("📄 OCR Table to CSV")
