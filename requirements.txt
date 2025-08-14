@@ -1,9 +1,5 @@
-streamlit
 pytesseract
+opencv-python
 Pillow
 pandas
-numpy
-xlsxwriter
-pdfplumber
-deep-translator
-langdetect
+openpyxl
