@@ -12,19 +12,24 @@ def preprocess_image(image):
 
 def parse_table(text):
     lines = [line.strip() for line in text.split("\n") if line.strip()]
-    rows = [re.split(r"\s{2,}|\t+", line) for line in lines]
+    rows = []
+    for line in lines:
+        # Split by 2+ spaces or tabs
+        columns = re.split(r"\s{2,}|\t+", line)
+        if len(columns) > 1:
+            rows.append(columns)
+    if not rows:
+        return pd.DataFrame()
     max_cols = max(len(row) for row in rows)
     rows = [row + [""] * (max_cols - len(row)) for row in rows]
-    return pd.DataFrame(rows[1:], columns=rows[0])
+    df = pd.DataFrame(rows[1:], columns=rows[0])
+    return df
 
-def convert_df_to_excel(df):
-    output = BytesIO()
-    df.to_excel(output, index=False, engine="openpyxl")
-    output.seek(0)
-    return output
+def convert_df_to_csv(df):
+    return df.to_csv(index=False).encode("utf-8")
 
 # Streamlit UI
-st.title("📄 OCR Table Extractor")
+st.title("📄 OCR Table to CSV")
 uploaded_file = st.file_uploader("Upload an image of a table", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
@@ -35,8 +40,11 @@ if uploaded_file:
     text = pytesseract.image_to_string(processed, lang="eng")
     df = parse_table(text)
 
-    st.subheader("Extracted Table")
-    st.dataframe(df)
+    if df.empty:
+        st.warning("⚠️ Could not detect a table structure. Try a clearer image.")
+    else:
+        st.subheader("Extracted Table")
+        st.dataframe(df)
 
-    excel_data = convert_df_to_excel(df)
-    st.download_button("Download as Excel", data=excel_data, file_name="table.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        csv_data = convert_df_to_csv(df)
+        st.download_button("Download as CSV", data=csv_data, file_name="table.csv", mime="text/csv")
