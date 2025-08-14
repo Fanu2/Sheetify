@@ -1,0 +1,6 @@
+streamlit
+pytesseract
+pillow
+pandas
+pyexcel-ods
+opencv-python
