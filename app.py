@@ -3,16 +3,18 @@ from PIL import Image, ImageOps, ImageFilter
 import pytesseract
 import pandas as pd
 import re
+import jpype
+import asposecells
 
 # 📍 Set Tesseract path (Streamlit Cloud default)
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 # 📦 Image Preprocessing tuned for Mangal font
 def preprocess_image(image):
-    image = image.convert("L")  # Grayscale
+    image = image.convert("L")
     image = ImageOps.autocontrast(image)
     image = image.filter(ImageFilter.SHARPEN)
-    image = image.point(lambda x: 0 if x < 128 else 255, '1')  # Binarize
+    image = image.point(lambda x: 0 if x < 128 else 255, '1')
     return image
 
 # 🧠 Deduplicate Column Names
@@ -29,7 +31,7 @@ def deduplicate_columns(columns):
             new_cols.append(f"{col}_{seen[col]}")
     return new_cols
 
-# 🧹 Optional: Clean Hindi text
+# 🧹 Clean Hindi text
 def clean_hindi_text(text):
     text = text.replace("।", ".")
     text = re.sub(r"[^\u0900-\u097F\s]", "", text)
@@ -62,9 +64,33 @@ def convert_df_to_csv(df):
     df.columns = deduplicate_columns([str(col) for col in df.columns])
     return df.to_csv(index=False).encode("utf-8")
 
+# 📤 Export to styled Excel with Mangal font
+def export_to_excel_with_mangal(df, output_path="jamabandi_output.xlsx"):
+    if not jpype.isJVMStarted():
+        jpype.startJVM()
+
+    from asposecells.api import Workbook, SaveFormat
+
+    workbook = Workbook()
+    sheet = workbook.getWorksheets().get(0)
+
+    for i, row in enumerate(df.itertuples(index=False)):
+        for j, value in enumerate(row):
+            cell = sheet.getCells().get(i, j)
+            cell.putValue(str(value))
+
+            style = cell.getStyle()
+            font = style.getFont()
+            font.setName("Mangal")
+            font.setSize(12)
+            style.setFont(font)
+            cell.setStyle(style)
+
+    workbook.save(output_path, SaveFormat.XLSX)
+
 # 🌟 Streamlit UI
-st.set_page_config(page_title="Jamabandi OCR to CSV", page_icon="📄")
-st.title("📄 Jamabandi OCR Table to CSV Converter")
+st.set_page_config(page_title="Jamabandi OCR to Excel", page_icon="📄")
+st.title("📄 Jamabandi OCR Table to Excel Converter")
 
 uploaded_file = st.file_uploader("Upload a Jamabandi-style Hindi table image", type=["jpg", "jpeg", "png"])
 
@@ -87,21 +113,7 @@ if uploaded_file:
         csv_data = convert_df_to_csv(df)
         st.download_button("📥 Download as CSV", data=csv_data, file_name="jamabandi_table.csv", mime="text/csv")
 
-        # Optional: Display sample in Mangal font (requires hosted font)
-        st.markdown("""
-        <style>
-        @font-face {
-          font-family: 'Mangal';
-          src: url('https://cdn.jsdelivr.net/gh/jasvir/mangal-font/Mangal.ttf');
-        }
-        .hindi {
-          font-family: 'Mangal';
-          font-size: 20px;
-        }
-        </style>
-        <div class='hindi'>
-        उदाहरण: विवरण सहित मालिक नाम — शिवक सिंह<br>
-        रकबा और किस्म जमीन — 8-0 वाली
-        </div>
-        """, unsafe_allow_html=True)
-
+        if st.button("📥 Export as Styled Excel"):
+            export_to_excel_with_mangal(df)
+            with open("jamabandi_output.xlsx", "rb") as f:
+                st.download_button("Download Styled Excel", f.read(), "jamabandi_output.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
