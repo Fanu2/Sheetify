@@ -3,7 +3,7 @@ import pytesseract
 from PIL import Image, ImageFilter, ImageOps
 import pandas as pd
 import numpy as np
-from pyexcel_ods import save_data
+# from pyexcel_ods import save_data
 from collections import OrderedDict
 import io
 import xlsxwriter
