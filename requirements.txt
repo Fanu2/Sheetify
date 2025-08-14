@@ -1,5 +1,4 @@
 pytesseract
-opencv-python
 Pillow
 pandas
 openpyxl
