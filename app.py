@@ -1,45 +1,42 @@
+import streamlit as st
 from PIL import Image, ImageOps
 import pytesseract
 import pandas as pd
 import re
-import os
+from io import BytesIO
 
-def preprocess_image(image_path):
-    """Simple preprocessing using Pillow for better OCR accuracy."""
-    img = Image.open(image_path).convert("L")  # Convert to grayscale
-    img = ImageOps.invert(img)  # Optional: invert for better contrast
-    img = ImageOps.autocontrast(img)  # Normalize contrast
-    return img
-
-def extract_text(image):
-    """Run OCR using pytesseract."""
-    return pytesseract.image_to_string(image, lang="eng")
+def preprocess_image(image):
+    image = image.convert("L")  # Grayscale
+    image = ImageOps.autocontrast(image)
+    return image
 
 def parse_table(text):
-    """Parse OCR text into structured rows."""
     lines = [line.strip() for line in text.split("\n") if line.strip()]
-    rows = []
-    for line in lines:
-        columns = re.split(r"\s{2,}|\t+", line)
-        rows.append(columns)
+    rows = [re.split(r"\s{2,}|\t+", line) for line in lines]
     max_cols = max(len(row) for row in rows)
     rows = [row + [""] * (max_cols - len(row)) for row in rows]
-    df = pd.DataFrame(rows[1:], columns=rows[0])
-    return df
+    return pd.DataFrame(rows[1:], columns=rows[0])
 
-def export_to_excel(df, output_path="output.xlsx"):
-    """Export DataFrame to Excel."""
-    df.to_excel(output_path, index=False, engine="openpyxl")
-    print(f"✅ Exported to {output_path}")
+def convert_df_to_excel(df):
+    output = BytesIO()
+    df.to_excel(output, index=False, engine="openpyxl")
+    output.seek(0)
+    return output
 
-def process_image_to_excel(image_path, output_path="output.xlsx"):
-    """Full pipeline for Vercel-friendly OCR."""
-    if not os.path.exists(image_path):
-        raise FileNotFoundError(f"Image not found: {image_path}")
-    image = preprocess_image(image_path)
-    text = extract_text(image)
+# Streamlit UI
+st.title("📄 OCR Table Extractor")
+uploaded_file = st.file_uploader("Upload an image of a table", type=["jpg", "jpeg", "png"])
+
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    st.image(image, caption="Uploaded Image", use_column_width=True)
+
+    processed = preprocess_image(image)
+    text = pytesseract.image_to_string(processed, lang="eng")
     df = parse_table(text)
-    export_to_excel(df, output_path)
 
-# Example usage
-process_image_to_excel("your_image.jpeg", "table_output.xlsx")
+    st.subheader("Extracted Table")
+    st.dataframe(df)
+
+    excel_data = convert_df_to_excel(df)
+    st.download_button("Download as Excel", data=excel_data, file_name="table.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
