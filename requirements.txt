@@ -1,5 +1,4 @@
-streamlit
-pytesseract
-Pillow
-pandas
-openpyxl
+streamlit>=1.32.0
+pillow>=10.0.0
+pytesseract>=0.3.10
+pandas>=2.0.0
