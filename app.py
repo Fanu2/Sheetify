@@ -53,12 +53,44 @@ def detect_header(df):
         df = df.drop(index=0).reset_index(drop=True)
     return df
 
-# 📤 Excel Export
+# 📤 Enhanced Excel Export with Formatting
 def export_to_excel(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Sheet1')
+        workbook  = writer.book
+        worksheet = writer.sheets['Sheet1']
+
+        # 🔠 Format for header
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'top',
+            'fg_color': '#D7E4BC',
+            'border': 1
+        })
+
+        # Apply header format
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+
+        # 📏 Auto-adjust column widths
+        for i, col in enumerate(df.columns):
+            column_len = max(df[col].astype(str).map(len).max(), len(col)) + 2
+            worksheet.set_column(i, i, column_len)
+
+        # ❄️ Freeze header row
+        worksheet.freeze_panes(1, 0)
+
+        # 🎨 Conditional formatting for numeric columns
+        for i, col in enumerate(df.columns):
+            if pd.api.types.is_numeric_dtype(df[col]):
+                worksheet.conditional_format(1, i, len(df), i, {
+                    'type': '3_color_scale'
+                })
+
     return output.getvalue()
+
 
 # 📥 Multi-Image Upload
 uploaded_files = st.file_uploader("Upload one or more images", type=["png", "jpg", "jpeg"], accept_multiple_files=True)
